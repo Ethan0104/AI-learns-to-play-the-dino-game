@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>AI plays the T-Rex Game</title>
+	<meta charset="utf-8">
+</head>
+<body>
+	<div id="stage" style="margin: 0 auto; width: 840px; height: 450px; text-align: center; vertical-align: middle" >
+		<canvas id="canvas" style="border:0px solid blue;" width="840" height="450">
+			Canvas Not Supported
+		</canvas>
+	</div>
+	<input type="range" id = "slider" min = "1" max = "100" onchange = "changeInterval()">
+	<output id="sliderVal"></output>
+	<script type="text/javascript" src = "./Matrix.js"></script>
+	<script type="text/javascript" src = "./Genetic External Algorithms.js"></script>
+	<script type="text/javascript" src = "./Obstacles.js"></script>
+	<script type="text/javascript" src = "./VisualizeData.js"></script>
+	<script type="text/javascript" src = "./Player Object.js"></script>
+	<script type="text/javascript" src = "./Decorations.js"></script>
+	<script type="text/javascript">
+
+		//get canvas
+		var canvas = document.getElementById('canvas');
+		var ctx = canvas.getContext('2d');
+
+		//get images
+		var ground = new Image();
+		ground.src = "./img/Ground.png";
+		var sky = new Image();
+		sky.src = "./img/Sky.png";
+
+		var dinoRun = [];//48 x 56
+		dinoRun[0] = new Image();
+		dinoRun[0].src = "./img/dinorun1.png";
+		dinoRun[1] = new Image();
+		dinoRun[1].src = "./img/dinorun2.png";
+		var dinoDuck = [];//68 x 34
+		dinoDuck[0] = new Image();
+		dinoDuck[0].src = "./img/dinoduck1.png";
+		dinoDuck[1] = new Image();
+		dinoDuck[1].src = "./img/dinoduck2.png";
+		var dinoJump = new Image();//48 x 50
+		dinoJump.src = "./img/dinoJump.png";
+		var dinoDead = new Image();
+		dinoDead.src = "./img/dinoDead.png";
+
+		var cactusBig = new Image();//30 x 60
+		cactusBig.src = "./img/cactusBig.png";
+		var cactusSmall = new Image();//23 x 45
+		cactusSmall.src = "./img/cactusSmall.png";
+		var cactusSmallMany = new Image();//72 x 48
+		cactusSmallMany.src = "./img/cactusSmallMany.png";
+
+		var cloud = new Image();
+		cloud.src = "./img/cloud.png"
+
+		var bird = [];
+		bird[0] = new Image();
+		bird[0].src = "./img/berd.png";
+		bird[1] = new Image();
+		bird[1].src = "./img/berd2.png";
+
+		var neuron = new Image();
+		neuron.src = "./img/neuron.png";
+
+		var targetScore = 1000;
+		const groundLevel = 340;
+		var interval = 10;
+		var speed = 3;
+		var obstacles = [];
+		var clouds = [];
+		var cloudsOn = true;//Clouds are just for looks so you can turn if off to save computing power
+		const minimunGap = 150;
+		var hold = 0;
+		var score = 0;
+		var gen = 1;
+		var highest = 0;
+		const font = "20px Arial";
+
+		var population = [];
+		var championSaves = [];
+		var player = null; //The replaying player
+		var ifDone = false; //If the target is achieved or not
+		var champion = null;
+		var championIndex = 0;
+		var fitnesses = [];
+		var sum = 0;
+		var popSize = 100;
+		const inputNodes = 6;
+		const hiddenNodes = 6;
+		const outputNodes = 3;//3 decisions - run, jump, duck
+		var mutateRate = 0.15;
+
+		var isReplay = false;
+		var replayGen = 0;
+		var bot = new Bot();
+		var isBot = false;
+
+		window.onload = function(){
+			setup();
+			loop();
+		}
+
+		function setup(){
+			for(var i = 0;i < popSize;i++){
+				population.push(new Player());
+				population[i].initializeBrain();
+			}
+		}
+		
+		function loop(){
+			inLoop();
+			setTimeout("loop()", parseInt(interval));
+		}
+
+		var a = 0;
+		function inLoop(){
+			ctx.fillStyle = "grey";//All texts in grey
+
+			if(isReplay){
+				animate();
+				player.collide();
+				player.draw();
+				player.look();
+				player.think();
+
+				a++;
+				score = Math.round(a/10);
+				gen != 1 ? showBrain(player.input_hidden, player.hidden_output):{};
+				showNumbers();
+				
+				if(player.state == 0){
+					alert("replay finished");
+					isReplay = false;
+					isReplay = confirm("Do you want to replay a champion?");
+					if(isReplay){
+						replayGen = prompt("Which generation?");
+						player = championSaves[replayGen-1];
+						player.state = 1;
+						console.log(player);//(permanent)log the player for info
+						backToOriginal();
+					}
+				}
+			}else if(isBot){
+				animate();
+				bot.collide();
+				bot.draw();
+				bot.look();
+				bot.think();
+
+				a++;
+				score = Math.round(a/10);
+				showNumbers();
+				if(!bot.state){
+					ctx.drawImage(dinoDead, 30, groundLevel - bot.y - bot.h);
+					clearInterval(loop);
+				}
+			}else if(!ifDone){
+				if(stillAlive() == 0){//when there's no one left
+					findSum();
+					population = newPop(popSize);
+					championSaves.push(champion);
+					//console.log(championSaves);
+					if(score >= targetScore){
+						ifDone = true;
+						if(confirm("Do you want to continue evolving?")){
+							targetScore = prompt("What is the new target score?");
+							ifDone = false;
+						}else{
+							isReplay = confirm("Do you want to replay a champion?");
+							if(isReplay){
+								replayGen = prompt("Which generation?");
+								player = championSaves[replayGen-1];
+								console.log(player);//(permanent)log the player for info
+							}
+						}
+					}
+					!isReplay ? gen++:gen;
+					backToOriginal();
+				}else{
+					animate();
+
+					for(var n = 0;n < popSize;n++){
+						if(population[n].state){
+							population[n].collide();
+							population[n].draw();
+							population[n].look();
+							population[n].think();
+						}
+					}
+					a++;
+					score = Math.round(a/10);
+					gen != 1 ? showBrain(champion.input_hidden, champion.hidden_output):{};
+					showNumbers();
+				}
+
+			}else{
+				replay();
+				ctx.drawImage(sky, 0, 0);
+				ctx.drawImage(ground, 0, groundLevel);
+				showNumbers();
+			}
+		}
+
+		function animate(){
+			drawGround();
+			addObs();
+			moveObs();
+			removeObs();
+			drawObs();
+			if(cloudsOn){
+				addCloud();
+				moveCloud();
+				removeCloud();
+				drawCloud();
+			}
+			speedUp();
+		}
+
+		function changeInterval(){//change the time interval and show the interval beside the slider
+			var sliderVal = document.getElementById("slider").value;
+			document.getElementById("sliderVal").innerHTML = sliderVal;
+			interval = sliderVal;
+		}
+
+		document.onkeydown = function(e){
+			if(e.keyCode == 67){//press c to toggle clouds
+				cloudsOn = !cloudsOn;
+			}
+		}
+
+		function replay(){
+			document.onkeydown = function(e){
+				if(e.keyCode == 82){
+					isReplay = true;
+					replayGen = prompt("Okay. Which generation?");
+					player = championSaves[replayGen-1];
+					player.state = 1;
+					console.log(player);//(permanent)log the player for info
+				} 
+			}
+		}
+
+		function findSum(){
+			sum = 0;
+			for(var i = 0;i < popSize;i++){
+				sum += population[i].fitness;
+			}
+			for(var i = 0;i < popSize;i++){
+				fitnesses.push(population[i].fitness/sum);
+			}
+		}
+
+		function stillAlive(){
+			var n = 0;
+			for(var i = 0;i < popSize;i++){
+				population[i].state ? n++ : {};
+			}
+			return n;
+		}
+
+		function backToOriginal(){
+			Math.sqrt(champion.fitness) >= highest ? highest = Math.sqrt(champion.fitness) : {};
+			obstacles = [];
+			speed = 3;
+			a = 0;
+			score = 0;
+			hold = 0;
+			fitnesses = [];
+			x1 = 0;
+			x2 = 840;
+		}
+
+	</script>
+</body>
+</html>
